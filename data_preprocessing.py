@@ -1,107 +1,80 @@
 import cv2
-import torch
 import numpy as np
-from example import UNetModel  # Import UNetModel from example.py
+import torch
+import os
 
-# Check if GPU is available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Running on device: {device}")
-
-# Image preprocessing function based on the provided process_image
+# Hàm xử lý ảnh
 def process_image(frame):
-    # Convert the frame to HSV (Hue, Saturation, Value) color space
+    # Chuyển đổi ảnh sang không gian màu HSV
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Define the range for red color in HSV
+    # Định nghĩa phạm vi màu đỏ trong HSV
     lower_red = np.array([0, 105, 79])
     upper_red = np.array([18, 255, 255])
     lower_red2 = np.array([165, 90, 113])
     upper_red2 = np.array([255, 255, 255])
 
-    # Create masks to detect red color
+    # Tạo các mặt nạ để phát hiện màu đỏ
     mask1 = cv2.inRange(hsv, lower_red, upper_red)
     mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
     mask = mask1 + mask2
 
-    # Find contours of the red areas
+    # Tìm các đường bao của vùng màu đỏ
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Create an output image that is black everywhere
+    # Tạo ảnh đầu ra màu đen
     output = np.zeros_like(frame)
 
-    # Draw the detected contours in white on the output image
+    # Vẽ các đường bao đã phát hiện lên ảnh đầu ra
     cv2.drawContours(output, contours, -1, (255, 255, 255), thickness=cv2.FILLED)
 
-    # Convert the output image to grayscale
+    # Chuyển ảnh đầu ra sang ảnh xám
     gray_output = cv2.cvtColor(output, cv2.COLOR_BGR2GRAY)
 
-    # Apply a morphological operation to remove small white areas (less than 2 pixels)
-    kernel = np.ones((2, 2), np.uint8)
-    gray_output = cv2.morphologyEx(gray_output, cv2.MORPH_OPEN, kernel)
+    # Áp dụng phép toán giãn để làm rõ các vùng trắng
+    kernel = np.ones((5, 5), np.uint8)
+    gray_output = cv2.dilate(gray_output, kernel, iterations=1)
 
-    # Normalize the image to range [0, 1]
+    # Áp dụng phép toán đóng để làm đầy các lỗ hổng nhỏ trong các chấm tròn
+    gray_output = cv2.morphologyEx(gray_output, cv2.MORPH_CLOSE, kernel)
+
+    # Áp dụng lọc trung vị để giảm nhiễu lấm tấm
+    gray_output = cv2.medianBlur(gray_output, 5)
+
+    # Chuẩn hóa ảnh về khoảng [0, 1]
     gray_output = gray_output.astype(np.float32) / 255.0
 
-    # Convert the image to a tensor and add a channel dimension
-    image_tensor = torch.tensor(gray_output, dtype=torch.float32).unsqueeze(0)  # (1, H, W)
+    return gray_output  # Trả về ảnh xám đã xử lý
 
-    return image_tensor
+# Đường dẫn đến thư mục ảnh đầu vào và đầu ra
+input_dir = "/media/namcao/NAM CAO/Ubuntu/Blackmax_regression/images_time_2"   # Thay bằng đường dẫn thư mục chứa ảnh gốc
+output_dir = "data_bw_time_2_new"                     # Thư mục đầu ra
 
-# Function to load the trained UNet model
-def load_model(model_path, output_size):
-    model = UNetModel(output_size=output_size).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()  # Set to evaluation mode
-    return model
+# Tạo thư mục đầu ra nếu chưa tồn tại
+os.makedirs(output_dir, exist_ok=True)
 
-# Function to predict on a single image (real-time frame)
-def predict_image(model, image_tensor):
-    image_tensor = image_tensor.to(device).unsqueeze(0)  # Add batch dimension (N=1)
-    with torch.no_grad():  # Disable gradient computation for inference
-        output = model(image_tensor)
-    return output.cpu().numpy()  # Return the output as a numpy array
+# Duyệt qua tất cả các ảnh trong thư mục đầu vào
+for filename in os.listdir(input_dir):
+    if filename.endswith((".jpg", ".png", ".jpeg")):  # Chỉ xử lý các định dạng ảnh phổ biến
+        # Đọc ảnh
+        img_path = os.path.join(input_dir, filename)
+        frame = cv2.imread(img_path)
 
-# Main function for real-time prediction using a camera
-def main():
-    # Initialize the camera
-    cap = cv2.VideoCapture(0)  # 0 is usually the default camera
+        # Kiểm tra nếu ảnh không thể đọc
+        if frame is None:
+            print(f"Không thể đọc ảnh {filename}")
+            continue
 
-    if not cap.isOpened():
-        print("Error: Could not open the camera.")
-        return
-
-    model_path = './unet_model_best.pth'  # Path to the trained UNet model
-    output_size = 4  # Adjust based on your model's output
-
-    # Load the trained UNet model
-    model = load_model(model_path, output_size)
-
-    while True:
-        # Capture frame-by-frame
-        ret, frame = cap.read()
-
-        if not ret:
-            print("Error: Could not read frame from camera.")
-            break
-
-        # Process the frame
+        # Xử lý ảnh
         processed_image = process_image(frame)
 
-        # Predict using the model
-        prediction = predict_image(model, processed_image)
-        print(f"Prediction: {prediction}")
+        # Chuyển ảnh từ khoảng [0, 1] về khoảng [0, 255] để lưu dưới dạng ảnh
+        processed_image = (processed_image * 255).astype(np.uint8)
 
-        # Display the original frame and the processed image
-        cv2.imshow('Camera Feed', frame)
-        cv2.imshow('Processed Image', processed_image.squeeze().cpu().numpy())
+        # Lưu ảnh đã xử lý vào thư mục đầu ra
+        output_path = os.path.join(output_dir, filename)
+        cv2.imwrite(output_path, processed_image)
 
-        # Press 'q' to exit the loop
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        print(f"Đã xử lý và lưu ảnh: {output_path}")
 
-    # Release the camera and close windows
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
+print("Hoàn thành xử lý tất cả ảnh.")
