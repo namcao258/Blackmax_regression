@@ -6,7 +6,8 @@ from model import RegressionCNN  # Import mô hình dự đoán
 from torchvision import transforms
 from PIL import Image
 from config import DEVICE, MAX_X, MAX_Z, MAX_ANGLE, MAX_HEIGHT
-# import test_display
+import test_display
+from visualizer import TactileVisualize
 
 def process_image(frame):
     # Chuyển đổi ảnh sang không gian màu HSV
@@ -60,8 +61,7 @@ def denormalize_output(output):
 cap = cv2.VideoCapture(0)
 
 model = load_model("/media/namcao/NAM CAO/Ubuntu/Blackmax_regression/change_height/RegressionCNN_model.pth")
-file_path = "/media/namcao/NAM CAO/Ubuntu/Blackmax_regression/change_height/skin_5.vtk"
-plotter = None 
+
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -74,18 +74,13 @@ while True:
     # Dự đoán các thông số từ ảnh đã xử lý
     output = predict_single_image(model, pil_image)
     x_position, z_position, rotation_angle, robot_height = denormalize_output(output[0])
-
-    print("Predicted Output (Original Scale):")
-    print(f"x_position: {x_position}")
-    print(f"z_position: {z_position}")
-    print(f"rotation_angle: {rotation_angle}")
-    print(f"robot_height: {robot_height}")
-    cv2.imshow("Processed Image", processed_image)
-    # if(z_position>25):
-        # test_display.display_model_with_camera(file_path,robot_height,z_position,rotation_angle,x_position, processed_image)
-        # test_display.display_predict(x_position,z_position, rotation_angle, robot_height)
+    # cv2.imshow("Processed Image", processed_image)
+    new_position = [z_position,rotation_angle, robot_height]  # Tọa độ mới cho điểm
+    deformation = x_position  # Độ biến dạng (depth)
+    test_display.display_model_with_camera(z_position, rotation_angle, rotation_angle, x_position)
+    
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 cap.release()
 cv2.destroyAllWindows()
-plotter.close()
+# plotter.close()
